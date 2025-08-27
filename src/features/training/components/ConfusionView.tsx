@@ -199,7 +199,7 @@ const ConfusionView: React.FC<ConfusionViewProps> = ({
     title: string;
     type: 'theoretical' | 'insightful';
   } | null>(null);
-
+  
   useEffect(() => {
     if (personaId) {
       generateDemoAnalysis();
