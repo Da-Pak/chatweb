@@ -1,7 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
-import LoadingMessage from '../../shared/components/LoadingMessage';
-import { chatApi } from '../../shared/api/chatApi';
 import DetailChatView from './DetailChatView';
 
 interface ConfusionViewProps {
@@ -41,27 +39,7 @@ const Container = styled.div`
   background: white;
 `;
 
-const HeaderSection = styled.div`
-  padding: 16px 20px;
-  background: white;
-  border-bottom: 1px solid #e9ecef;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-`;
 
-const HeaderTitle = styled.h2`
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  &::before {
-    content: '🌀';
-    font-size: 20px;
-  }
-`;
 
 const ContentSection = styled.div`
   flex: 1;
@@ -200,13 +178,7 @@ const ConfusionView: React.FC<ConfusionViewProps> = ({
     type: 'theoretical' | 'insightful';
   } | null>(null);
   
-  useEffect(() => {
-    if (personaId) {
-      generateDemoAnalysis();
-    }
-  }, [personaId]);
-
-  const generateDemoAnalysis = () => {
+  const generateDemoAnalysis = useCallback(() => {
     setIsLoading(true);
     setError(null);
     
@@ -351,7 +323,13 @@ const ConfusionView: React.FC<ConfusionViewProps> = ({
       setAnalysis(demoAnalysis);
       setIsLoading(false);
     }, 1500); // 1.5초 로딩 시뮬레이션
-  };
+  }, [personaId, personaName]);
+  
+  useEffect(() => {
+    if (personaId) {
+      generateDemoAnalysis();
+    }
+  }, [personaId, generateDemoAnalysis]);
 
   const toggleSection = (sectionTitle: string) => {
     const newExpanded = new Set(expandedSections);
