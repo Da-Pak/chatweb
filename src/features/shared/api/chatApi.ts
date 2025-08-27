@@ -16,6 +16,9 @@ import {
 export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 export const chatApi = {
+  // 범용 채팅 API
+  universalChat,
+  
   // 페르소나 정보 가져오기
   async getPersonas(): Promise<ApiResponse<Record<string, Persona>>> {
     return apiGet<Record<string, Persona>>('/personas');
@@ -108,25 +111,7 @@ export const chatApi = {
     return apiPost('/interpretations/generate-all');
   },
 
-  // ⚠️ DEPRECATED: universalChat 사용 권장
-  async chatWithInterpretation(
-    personaId: string,
-    message: string
-  ): Promise<ApiResponse<{
-    persona_id: string;
-    persona_name: string;
-    user_message: string;
-    response: string;
-    interpretation_used: boolean;
-    timestamp: string;
-  }>> {
-    console.warn('chatWithInterpretation is deprecated. Use universalChat instead.');
-    return universalChat({ 
-      personaId, 
-      message, 
-      contextType: 'interpretation' 
-    });
-  },
+
 
   // 컨텍스트 기반 범용 채팅 (해석/나아가기/문장 모두 지원)
   async chatWithContext(

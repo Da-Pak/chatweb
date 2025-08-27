@@ -316,10 +316,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
           // 백엔드 API를 통해 새로운 AI 응답 생성
           try {
-            const response = await chatApi.chatWithInterpretation(
-              currentInterpretation.personaId,
-              newContent
-            );
+            const response = await chatApi.universalChat({
+              personaId: currentInterpretation.personaId,
+              message: newContent,
+              contextType: 'interpretation'
+            });
 
             if (response.data) {
               const aiResponse = {
