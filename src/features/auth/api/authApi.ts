@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { UserCreate, User } from '../types/authTypes';
+import { API_BASE_URL } from '../../shared/api/chatApi';
 
-const API_URL = 'http://localhost:8000/auth';
+const API_URL = `${API_BASE_URL}/auth`;
 
 export const register = async (userInfo: UserCreate): Promise<User> => {
   const response = await axios.post(`${API_URL}/register`, userInfo);

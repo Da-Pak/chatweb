@@ -14,11 +14,12 @@ interface SentenceViewProps {
   personaId: string;
   personaName: string;
   sentenceContent: string;
-  threads: TrainingThread[];
+  onRefreshThreads?: () => void;
   onSwitchToMode: (mode: 'interpretation' | 'proceed' | 'sentence') => void;
   onGenerateNewInterpretation: () => void;
+  
   selectedThread: TrainingThread | null;
-  onRefreshThreads?: () => void;
+  threads: TrainingThread[];
 }
 
 const Container = styled.div`
@@ -85,12 +86,11 @@ const SentenceView: React.FC<SentenceViewProps> = ({
   threads,
   onSwitchToMode,
   onGenerateNewInterpretation,
-  selectedThread,
+  selectedThread: propSelectedThread,
   onRefreshThreads,
 }) => {
-  const [activeThread, setActiveThread] = useState<TrainingThread | null>(selectedThread || null);
+  const [selectedThread, setSelectedThread] = useState<TrainingThread | null>(propSelectedThread || null);  
   const [isLoading, setIsLoading] = useState(false);
-  const [localThreads, setLocalThreads] = useState<TrainingThread[]>(threads);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<MessageInputRef>(null);
   const [showToast, setShowToast] = useState(false);
@@ -103,23 +103,27 @@ const SentenceView: React.FC<SentenceViewProps> = ({
   const [isSentenceModeActive, setIsSentenceModeActive] = useState(false);
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
 
-  // 문장 타입의 스레드만 필터링
-  const sentenceThreads = localThreads.filter(thread => thread.thread_type === 'sentence');
-
+  // 선택된 스레드 변경 시 스레드별 문장 데이터 로딩 (InterpretationView와 동일)
   useEffect(() => {
-    setLocalThreads(threads);
-  }, [threads]);
-
-  // 선택된 스레드 변경 시 처리
-  useEffect(() => {
-    if (selectedThread) {
-      console.log('선택된 스레드 변경:', selectedThread.id);
-      setActiveThread(selectedThread);
+    if (propSelectedThread) {
+      console.log('=== 문장 스레드 변경 시작 ===');
+      console.log('새로운 스레드 ID:', propSelectedThread.id);
+      console.log('새로운 스레드 메시지 개수:', propSelectedThread.messages?.length || 0);
+      
+      setSelectedThread(propSelectedThread);
       
       // 스레드별 문장 데이터 로딩
-      loadThreadSentenceData(selectedThread.id);
+      loadThreadSentenceData(propSelectedThread.id);
+      
+      console.log('=== 문장 스래드 변경 완료 ===');
+    } else {
+      console.log('선택된 스레드가 해제됨');
+      setSelectedThread(null);
+      // 스레드가 없으면 상태 초기화
+      setMemos({});
+      setHighlightedSentences(new Set());
     }
-  }, [selectedThread]);
+  }, [propSelectedThread]);
 
   // 스레드별 문장 데이터 로딩 (백엔드 API만 사용)
   const loadThreadSentenceData = async (threadId: string) => {
@@ -150,108 +154,93 @@ const SentenceView: React.FC<SentenceViewProps> = ({
     if (chatMessagesRef.current) {
       chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
     }
-  }, [activeThread?.messages]);
+  }, [selectedThread?.messages]);
 
+  // 메시지 전송 처리 (InterpretationView와 동일한 구조)
   const handleSendMessage = async (message: string): Promise<boolean> => {
-    // 선택된 스레드가 없으면 기본 스레드 생성
-    let currentThread = activeThread;
-    if (!currentThread) {
-      // 문장 타입의 첫 번째 스레드를 찾거나 기본 스레드 생성
-      const sentenceThread = sentenceThreads[0];
-      if (sentenceThread) {
-        currentThread = sentenceThread;
-        setActiveThread(currentThread);
-      } else {
-        // 기본 스레드 생성 (UI용)
-        const defaultThread: TrainingThread = {
-          id: `sentence_default_${personaId}`,
-          persona_id: personaId,
-          thread_type: 'sentence',
-          content: sentenceContent,
-          messages: [{
-            role: 'assistant',
-            content: sentenceContent,
-            timestamp: new Date().toISOString(),
-            persona_id: personaId,
-            persona_name: personaName
-          }],
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        currentThread = defaultThread;
-        setActiveThread(currentThread);
-        
-        // 로컬 스레드 목록에도 추가
-        const updatedThreads = [...localThreads, defaultThread];
-        setLocalThreads(updatedThreads);
-        onRefreshThreads?.();
-      }
-    }
-    
-    // 1. 사용자 메시지를 즉시 UI에 추가
+    if (!message.trim()) return false;
+
+    // 사용자 메시지를 즉시 추가하여 UI에 표시
     const userMessage = {
       role: 'user' as const,
       content: message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      persona_id: personaId
     };
-    
-    const updatedThread = {
-      ...currentThread,
-      messages: [...currentThread.messages, userMessage],
-      updated_at: new Date().toISOString()
-    };
-    
-    setActiveThread(updatedThread);
-    
-    // 2. 로딩 상태 시작
+
+    // 먼저 사용자 메시지를 로컬 상태에 추가
+    if (selectedThread) {
+      const updatedThread = {
+        ...selectedThread,
+        messages: [...selectedThread.messages, userMessage]
+      };
+      setSelectedThread(updatedThread);
+    }
+
+    // 로딩 상태 시작
     setIsLoading(true);
-    
+
     try {
-      // 3. 백엔드 API 호출
+      console.log('=== 문장 메시지 전송 시작 ===');
+      console.log('현재 선택된 스레드:', selectedThread);
+      console.log('메시지:', message);
+
+      if (!selectedThread?.id) {
+        showCopyToast('선택된 스레드가 없습니다.');
+        setIsLoading(false);
+        return false;
+      }
+
+      // chatWithThread API 사용 (InterpretationView와 동일)
       const response = await chatApi.chatWithThread({
-        thread_id: currentThread.id,
+        thread_id: selectedThread.id,
         user_message: message
       });
 
-      if (response.data && response.data.success) {
-        // 4. AI 응답을 UI에 추가
-        const assistantMessage = {
-          role: 'assistant' as const,
-          content: response.data.new_response.content,
-          timestamp: response.data.new_response.timestamp,
-          persona_id: response.data.new_response.persona_id || personaId,
-          persona_name: response.data.new_response.persona_name || personaName
-        };
+      console.log('=== 문장 API 응답 ===');
+      console.log('응답:', response);
 
-        const finalUpdatedThread = {
-          ...response.data.thread,
-          messages: [...response.data.thread.messages, assistantMessage],
-        };
+      if (response.data && response.data.success) {
+        // 백엔드에서 받은 완전한 스레드 데이터로 업데이트
+        setSelectedThread(response.data.thread);
+        showCopyToast('답변이 생성되었습니다.');
         
-        setActiveThread(finalUpdatedThread);
-        
-        // 5. 로컬 스레드 목록도 업데이트
-        const updatedThreads = localThreads.map(t => 
-          t.id === currentThread!.id ? finalUpdatedThread : t
-        );
-        setLocalThreads(updatedThreads);
-        onRefreshThreads?.();
+        // 스레드 목록 새로고침
+        if (onRefreshThreads) {
+          onRefreshThreads();
+        }
         
         setIsLoading(false);
         return true;
       } else {
+        // API 실패 시 사용자 메시지 제거
+        if (selectedThread) {
+          const revertedThread = {
+            ...selectedThread,
+            messages: selectedThread.messages.slice(0, -1) // 마지막 사용자 메시지 제거
+          };
+          setSelectedThread(revertedThread);
+        }
         console.error('문장 채팅 응답 오류:', response);
+        showCopyToast('답변 생성에 실패했습니다.');
         setIsLoading(false);
         return false;
       }
     } catch (error) {
+      // API 실패 시 사용자 메시지 제거
+      if (selectedThread) {
+        const revertedThread = {
+          ...selectedThread,
+          messages: selectedThread.messages.slice(0, -1) // 마지막 사용자 메시지 제거
+        };
+        setSelectedThread(revertedThread);
+      }
       console.error('문장 채팅 오류:', error);
+      showCopyToast('네트워크 오류가 발생했습니다.');
       setIsLoading(false);
       return false;
     }
   };
-
-
 
   // 토스트 메시지 표시 함수
   const showCopyToast = (message: string) => {
@@ -282,7 +271,7 @@ const SentenceView: React.FC<SentenceViewProps> = ({
   };
 
   const handleEditMessage = async (messageIndex: number, newContent: string) => {
-    if (!activeThread?.id) {
+    if (!selectedThread?.id) {
       showCopyToast('스레드가 선택되지 않았습니다');
       return false;
     }
@@ -291,23 +280,22 @@ const SentenceView: React.FC<SentenceViewProps> = ({
       setIsLoading(true);
       
       // 백엔드 API 호출
-      const response = await chatApi.editThreadMessage(activeThread.id, messageIndex, newContent);
+      const response = await chatApi.editThreadMessage(selectedThread.id, messageIndex, newContent);
       
-      if (response.data?.success && response.data.updated_thread) {
-        // 스레드 업데이트
-        setActiveThread(response.data.updated_thread);
+      if (response.data) {
+        // 백엔드에서 TrainingThread 객체를 직접 반환
+        const updatedThread = response.data as any; // TrainingThread
         
-        // 로컬 스레드 목록도 업데이트
-        const updatedThreads = localThreads.map(t => 
-          t.id === activeThread.id ? response.data!.updated_thread! : t
-        );
-        setLocalThreads(updatedThreads);
+        // 즉시 로컬 상태 업데이트 (즉시 UI 반영)
+        setSelectedThread(updatedThread);
+        
+        // 부모 컴포넌트 새로고침 (스레드 목록 업데이트)
         onRefreshThreads?.();
         
-    setEditingMessageIndex(null);
+        setEditingMessageIndex(null);
         showCopyToast('메시지가 수정되고 새로운 응답이 생성되었습니다');
         setIsLoading(false);
-    return true;
+        return true;
       } else {
         console.error('메시지 수정 실패:', response.error);
         showCopyToast('메시지 수정에 실패했습니다');
@@ -343,8 +331,8 @@ const SentenceView: React.FC<SentenceViewProps> = ({
     // sentenceId로부터 실제 문장 내용 찾기
     const [timestamp, , sentenceIndex] = sentenceId.split('_');
     let sentenceContent = '';
-    if (activeThread?.messages) {
-      const message = activeThread.messages.find(m => m.timestamp === timestamp);
+    if (selectedThread?.messages) {
+      const message = selectedThread.messages.find(m => m.timestamp === timestamp);
       if (message) {
         const sentences = message.content.split(/[\n.]+/).map(s => s.trim()).filter(s => s.length > 0);
         sentenceContent = sentences[parseInt(sentenceIndex)] || '';
@@ -358,7 +346,7 @@ const SentenceView: React.FC<SentenceViewProps> = ({
       // 백엔드 API 호출로 실제 저장 (백엔드 자동 저장을 위한 추가 정보 포함)
       await sentenceApi.createOrUpdateMemo({
         sentence_id: sentenceId,
-        thread_id: activeThread?.id,
+        thread_id: selectedThread?.id,
         thread_type: 'sentence',
         content: memo,
         sentence_content: sentenceContent,
@@ -366,8 +354,8 @@ const SentenceView: React.FC<SentenceViewProps> = ({
         // 백엔드 자동 저장을 위한 추가 정보
         persona_id: personaId,
         tags: ['sentence', ...(personaId ? [personaId] : [])],
-        source_conversation_id: activeThread?.id,
-        source_thread_id: activeThread?.id,
+        source_conversation_id: selectedThread?.id,
+        source_thread_id: selectedThread?.id,
         // 기존 메모 여부 표시
         is_update: !!existingMemo
       } as any);
@@ -416,7 +404,7 @@ const SentenceView: React.FC<SentenceViewProps> = ({
   const sentenceMenuActions = useSentenceMenu({
     personaId: personaId || '',
     threadType: 'sentence',
-    selectedThread: activeThread,
+    selectedThread,
     memos,
     highlightedSentences,
     setMemos,
@@ -506,27 +494,10 @@ const SentenceView: React.FC<SentenceViewProps> = ({
     }
   };
           
-  // 스레드 새로고침 함수
+  // 스레드 새로고침 함수 (부모에게 위임)
   const handleRefreshThreads = async () => {
-          try {
-            const threadsResponse = await chatApi.getPersonaThreads(personaId);
-            if (threadsResponse.data) {
-              const updatedThreads = threadsResponse.data;
-              setLocalThreads(updatedThreads);
-              onRefreshThreads?.();
-              
-              // 새로 생성된 문장 스레드 선택
-              const newSentenceThread = updatedThreads
-                .filter(t => t.thread_type === 'sentence')
-                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-              
-        if (newSentenceThread && (!activeThread || newSentenceThread.id !== activeThread.id)) {
-                setActiveThread(newSentenceThread);
-          showCopyToast('새로운 문장이 생성되었습니다');
-        }
-      }
-    } catch (error) {
-      console.error('스레드 새로고침 실패:', error);
+    if (onRefreshThreads) {
+      onRefreshThreads();
     }
   };
 
@@ -536,7 +507,7 @@ const SentenceView: React.FC<SentenceViewProps> = ({
     const selectedTexts = selectedIds.map(id => {
       // sentenceId에서 실제 문장 텍스트를 찾아내는 로직
       const [timestamp, , sentenceIndex] = id.split('_');
-      const message = activeThread?.messages.find(m => m.timestamp === timestamp);
+      const message = selectedThread?.messages.find(m => m.timestamp === timestamp);
       if (message) {
         const sentences = message.content.split(/[\n.]+/).map(s => s.trim()).filter(s => s.length > 0);
         return sentences[parseInt(sentenceIndex)] || '';
@@ -544,140 +515,8 @@ const SentenceView: React.FC<SentenceViewProps> = ({
       return '';
     }).filter(text => text.length > 0);
 
-    switch (action) {
-      case 'sendToInput':
-        if (messageInputRef.current && selectedTexts.length > 0) {
-          const formattedText = selectedTexts.map(text => `"${text}"`).join(', ');
-          messageInputRef.current.insertText(formattedText);
-        }
-        break;
-      
-      case 'saveToVault':
-        try {
-          // 선택된 문장들의 하이라이트/메모 상태 수집
-          const highlightStates: boolean[] = [];
-          const highlightColors: (string | null)[] = [];
-          const memoContents: (string | null)[] = [];
-          
-          for (const sentenceId of selectedIds) {
-            const isHighlighted = highlightedSentences.has(sentenceId);
-            const memoContent = memos[sentenceId] || null;
-            
-            highlightStates.push(isHighlighted);
-            highlightColors.push(isHighlighted ? 'yellow' : null);
-            memoContents.push(memoContent);
-          }
-
-          await sentenceApi.saveSentencesToVault({
-            sentences: selectedTexts,
-            source_message_id: `sentence_${personaId}`,
-            source_conversation_id: activeThread?.id,
-            source_thread_id: activeThread?.id,
-            source_thread_type: 'sentence',
-            source_sentence_ids: selectedIds,
-            tags: ['sentence', personaId],
-            highlight_states: highlightStates,
-            highlight_colors: highlightColors,
-            memo_contents: memoContents
-          });
-          
-          // 백엔드에 하이라이트도 저장 (기존 로직 유지)
-          if (activeThread?.id) {
-            for (const sentenceId of selectedIds) {
-              await sentenceApi.createHighlight({
-                sentence_id: sentenceId,
-                thread_id: activeThread.id,
-                thread_type: 'sentence'
-              });
-            }
-          }
-          
-          // 성공 시 로컬 상태 업데이트
-          setHighlightedSentences(prev => new Set([...Array.from(prev), ...selectedIds]));
-          
-          showCopyToast('저장고에 저장되었습니다 (하이라이트/메모 정보 포함)');
-        } catch (error) {
-          console.error('저장고 저장 실패:', error);
-          showCopyToast('저장고 저장에 실패했습니다');
-        }
-        break;
-      
-      case 'addMemo':
-        // 새로운 통합된 메뉴 액션 사용
-        await sentenceMenuActions.handleAddMemo(selectedIds, selectedTexts);
-        break;
-      
-      case 'highlight':
-        if (selectedIds.length > 0 && activeThread?.id) {
-          try {
-            console.log('하이라이트 토글 시작:', selectedIds);
-            
-            // 현재 하이라이트된 문장들과 선택된 문장들을 비교
-            const currentlyHighlighted = selectedIds.filter(id => highlightedSentences.has(id));
-            const notHighlighted = selectedIds.filter(id => !highlightedSentences.has(id));
-            
-            console.log('현재 하이라이트된 문장들:', currentlyHighlighted);
-            console.log('아직 하이라이트되지 않은 문장들:', notHighlighted);
-            
-            if (currentlyHighlighted.length > 0) {
-              // 일부가 하이라이트되어 있으면 모두 제거
-              console.log('기존 하이라이트 제거 중...');
-              
-              // 로컬 상태에서 하이라이트 제거
-              setHighlightedSentences(prev => {
-                const newSet = new Set(prev);
-                selectedIds.forEach(id => newSet.delete(id));
-                return newSet;
-              });
-              
-              // 백엔드에서 하이라이트 삭제
-              for (const sentenceId of selectedIds) {
-                try {
-                  await sentenceApi.deleteHighlight(sentenceId);
-                } catch (error) {
-                  console.warn('백엔드 하이라이트 삭제 실패:', error);
-                }
-              }
-              
-              showCopyToast('하이라이트가 제거되었습니다');
-            } else {
-              // 모두 하이라이트되지 않았으면 모두 추가
-              console.log('새 하이라이트 추가 중...');
-              
-              // 로컬 상태에 하이라이트 추가
-              setHighlightedSentences(prev => new Set([...Array.from(prev), ...selectedIds]));
-              
-              // 백엔드에 하이라이트 저장
-              for (const sentenceId of selectedIds) {
-                try {
-                  await sentenceApi.createHighlight({
-                    sentence_id: sentenceId,
-                    thread_id: activeThread.id,
-                    thread_type: 'sentence'
-                  });
-                } catch (error) {
-                  console.warn('백엔드 하이라이트 저장 실패:', error);
-                }
-              }
-              
-              showCopyToast('하이라이트가 추가되었습니다');
-            }
-          } catch (error) {
-            console.error('하이라이트 토글 실패:', error);
-            showCopyToast('하이라이트 처리에 실패했습니다');
-          }
-        }
-        break;
-      
-      case 'copy':
-        if (selectedTexts.length > 0) {
-          await copyToClipboard(selectedTexts.join(' '), '선택된 문장이 복사되었습니다');
-        }
-        break;
-    }
-
-    // 모든 선택 해제
-    setSelectedSentences(new Set());
+    // 새로운 통합된 메뉴 액션 사용
+    await sentenceMenuActions.handleMenuAction(action, selectedIds, selectedTexts, messageInputRef);
   };
 
   // 문장선택 모드 토글
@@ -693,16 +532,25 @@ const SentenceView: React.FC<SentenceViewProps> = ({
       
       <ChatSection>
         <ChatMessages ref={chatMessagesRef}>
-          {!activeThread || activeThread.messages.length === 0 ? (
-            <EmptyChat>
-              <div style={{ fontSize: '24px', marginBottom: '8px' }}>📝</div>
-              <div>문장에 대해 더 자세히 질문해보세요</div>
-              <div style={{ fontSize: '12px', marginTop: '4px' }}>
-                {personaName}와 대화를 나눌 수 있습니다
-              </div>
-            </EmptyChat>
-          ) : (
-            activeThread.messages.map((message, index) => 
+          {(() => {
+            // 표시할 메시지 결정: selectedThread 기반으로만 표시 (InterpretationView와 동일)
+            const displayMessages = selectedThread?.messages || [];
+            
+            // 메시지가 없는 경우 빈 채팅 화면 표시
+            if (!displayMessages || displayMessages.length === 0) {
+              return (
+                <EmptyChat>
+                  <div style={{ fontSize: '24px', marginBottom: '8px' }}>📝</div>
+                  <div>문장에 대해 더 자세히 질문해보세요</div>
+                  <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                    {personaName}와 대화를 나눌 수 있습니다
+                  </div>
+                </EmptyChat>
+              );
+            }
+            
+            // 메시지들을 렌더링
+            return displayMessages.map((message, index) => 
               message.role === 'user' ? (
                 <Message
                   key={`sentence_${index}`}
@@ -751,13 +599,13 @@ const SentenceView: React.FC<SentenceViewProps> = ({
                   onDocumentAction={handleDocumentAction}
                 />
               )
-            )
-          )}
+            );
+          })()}
           
           {isLoading && (
             <LoadingMessage 
               personaName={personaName}
-              personaColor="#4caf50"
+              personaColor="#6c757d"
               customMessage="응답 생성중..."
             />
           )}
@@ -772,11 +620,11 @@ const SentenceView: React.FC<SentenceViewProps> = ({
             onToggleSentenceMode={handleToggleSentenceMode}
             isSentenceModeActive={isSentenceModeActive}
             hasSelectedSentences={selectedSentences.size > 0}
-            currentInterpretation={activeThread?.content || sentenceContent}
+            currentInterpretation={selectedThread?.content || sentenceContent}
             personaId={personaId}
             onGenerateProceed={handlePersonAction}
             onGenerateSentence={handleDocumentAction}
-            currentChatMessages={activeThread?.messages}
+            currentChatMessages={selectedThread?.messages}
             onRefreshThreads={handleRefreshThreads}
           />
         </ChatInputSection>
@@ -792,4 +640,4 @@ const SentenceView: React.FC<SentenceViewProps> = ({
   );
 };
 
-export default SentenceView; 
+export default SentenceView;

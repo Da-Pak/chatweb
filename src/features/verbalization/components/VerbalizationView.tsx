@@ -187,11 +187,12 @@ const VerbalizationView: React.FC<VerbalizationViewProps> = ({
     console.log('selectedThread.messages:', selectedThread?.messages);
     
     if (selectedThread) {
-      // 스레드 메시지들을 localMessages로 동기화
+      // 스레드 메시지들을 localMessages로 동기화 (깊은 복사)
       const threadMessages = selectedThread.messages || [];
       console.log('스레드 메시지들:', threadMessages.map(m => ({ role: m.role, content: m.content?.substring(0, 50) + '...', timestamp: m.timestamp })));
       
-      setLocalMessages(threadMessages);
+      // 깊은 복사로 메시지 동기화하여 참조 문제 방지
+      setLocalMessages([...threadMessages]);
       
       // 스레드별 문장 데이터 로딩
       loadThreadSentenceData(selectedThread.id);
@@ -237,11 +238,16 @@ const VerbalizationView: React.FC<VerbalizationViewProps> = ({
       );
 
       if (response.data && response.data.success) {
-        // 3단계: AI 응답을 로컬에 직접 추가하는 대신, 부모 컴포넌트에 스레드 업데이트를 알려 동기화합니다.
-        // 이 방식이 상태 동기화 문제를 해결합니다.
+        // 3단계: 백엔드에서 업데이트된 스레드 정보로 부모 컴포넌트 동기화
         console.log('스레드 업데이트 시작');
         await onThreadUpdate();
         console.log('스레드 업데이트 완료');
+        
+        // 4단계: 로컬 메시지도 즉시 업데이트 (빠른 UI 응답)
+        if (response.data.thread && response.data.thread.messages) {
+          console.log('로컬 메시지 즉시 업데이트');
+          setLocalMessages([...response.data.thread.messages]);
+        }
         
         return true;
       } else {

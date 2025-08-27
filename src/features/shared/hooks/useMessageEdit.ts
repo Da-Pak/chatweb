@@ -32,9 +32,12 @@ export const useMessageEdit = () => {
       // 백엔드 API 호출
       const response = await chatApi.editThreadMessage(threadId, messageIndex, newContent);
       
-      if (response.data?.success && response.data.updated_thread) {
+      if (response.data) {
+        // 백엔드에서 TrainingThread 객체를 직접 반환
+        const updatedThread = response.data as any; // TrainingThread
+        
         if (onSuccess) {
-          onSuccess(response.data.updated_thread);
+          onSuccess(updatedThread);
         }
         
         setEditingMessageIndex(null);

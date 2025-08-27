@@ -6,28 +6,30 @@ import SelectableMessage from './SelectableMessage';
 import FloatingActionButton from '../../shared/components/FloatingActionButton';
 import LoadingMessage from '../../shared/components/LoadingMessage';
 import { sentenceApi } from '../api/sentenceApi';
+import { chatApi } from '../../shared/api/chatApi';
 import { TrainingThread } from '../../shared/types';
 
 import { useSentenceMenu } from '../../shared/hooks/useSentenceMenu';
-import { useSentenceData } from '../../shared/hooks/useSentenceData';
+
 
 
 interface InterpretationViewProps {
-  interpretation: string;
+  personaId: string;
   personaName: string;
+  interpretation: string;
+  onRefreshThreads?: () => void;
+  selectedThread: TrainingThread | null; // 나아가기와 동일하게 추가
+  onSwitchToMode?: (mode: 'proceed' | 'sentence') => void;
+  onGenerateNewInterpretation?: () => void;
+
   onSendMessage: (message: string) => Promise<boolean>;
   onEditMessage?: (messageIndex: number, newContent: string) => Promise<boolean>;
-  isLoading: boolean;
+  
   messages: Array<{
     role: 'user' | 'assistant';
     content: string;
     timestamp: string;
   }>;
-  onGenerateNewInterpretation?: () => void;
-  onSwitchToMode?: (mode: 'proceed' | 'sentence') => void;
-  personaId?: string;
-  onRefreshThreads?: () => void;
-  selectedThread?: TrainingThread | null; // 나아가기와 동일하게 추가
 }
 
 const Container = styled.div`
@@ -92,17 +94,13 @@ const Toast = styled.div<{ show: boolean }>`
 const InterpretationView: React.FC<InterpretationViewProps> = ({
   interpretation,
   personaName,
-  onSendMessage,
   onEditMessage,
-  isLoading,
-  messages,
-  onGenerateNewInterpretation,
-  onSwitchToMode,
   personaId,
   onRefreshThreads,
   selectedThread: propSelectedThread,
 }) => {
   const [selectedThread, setSelectedThread] = useState<TrainingThread | null>(propSelectedThread || null);
+  const [isLoading, setIsLoading] = useState(false);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<MessageInputRef>(null);
   const [showToast, setShowToast] = useState(false);
@@ -118,10 +116,9 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
 
 
   useEffect(() => {
-    if (chatMessagesRef.current) {
-      chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
-    }
-  }, [messages]);
+    if (!chatMessagesRef.current) return;
+    chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
+  }, [selectedThread?.messages]);
 
   // 선택된 스레드 변경 시 처리 (나아가기와 동일)
   useEffect(() => {
@@ -131,8 +128,134 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
       
       // 스레드별 문장 데이터 로딩
       loadThreadSentenceData(propSelectedThread.id);
+    } else {
+      // 선택된 스레드가 없어도 상태를 null로 설정 (빈 상태 대신 최근 스레드를 보여주기 위함)
+      setSelectedThread(null);
     }
   }, [propSelectedThread]);
+
+  // 메시지 전송 처리 (나아가기/문장과 동일한 구조)
+  const handleSendMessage = async (message: string): Promise<boolean> => {
+    if (!message.trim()) return false;
+
+    // 사용자 메시지를 즉시 추가하여 UI에 표시
+    const userMessage = {
+      role: 'user' as const,
+      content: message,
+      timestamp: new Date().toISOString(),
+      persona_id: personaId
+    };
+
+    // 먼저 사용자 메시지를 로컬 상태에 추가
+    if (selectedThread) {
+      const updatedThread = {
+        ...selectedThread,
+        messages: [...selectedThread.messages, userMessage]
+      };
+      setSelectedThread(updatedThread);
+    }
+
+    // 로딩 상태 시작
+    setIsLoading(true);
+
+    try {
+      console.log('=== 해석 메시지 전송 시작 ===');
+      console.log('현재 선택된 스레드:', selectedThread);
+      console.log('메시지:', message);
+
+      let currentThread = selectedThread;
+
+      // 선택된 스레드가 없으면 해석 스레드를 생성하거나 찾아서 사용
+      if (!currentThread) {
+        console.log('선택된 스레드가 없음, 해석 스레드 생성 또는 검색');
+        
+        if (!personaId) {
+          showCopyToast('페르소나 정보가 없습니다.');
+          setIsLoading(false);
+          return false;
+        }
+        
+        // 먼저 현재 해석 내용으로 해석 스레드를 저장/생성
+        const saveResponse = await chatApi.saveCurrentAsInterpretation(personaId, interpretation || '');
+        
+        if (saveResponse.data) {
+          console.log('해석 스레드 생성됨:', saveResponse.data);
+          currentThread = saveResponse.data as any; // TrainingThread로 캐스팅
+          setSelectedThread(currentThread);
+        } else {
+          showCopyToast('해석 스레드 생성에 실패했습니다.');
+          setIsLoading(false);
+          return false;
+        }
+      }
+
+      if (!currentThread) {
+        showCopyToast('스레드 생성에 실패했습니다.');
+        setIsLoading(false);
+        return false;
+      }
+
+      console.log('사용할 스레드:', currentThread.id);
+
+      // chatWithThread API 사용 (나아가기/문장과 동일)
+      const response = await chatApi.chatWithThread({
+        thread_id: currentThread.id,
+        user_message: message
+      });
+
+      console.log('=== 해석 API 응답 ===');
+      console.log('응답:', response);
+
+      if (response.data && response.data.success) {
+        // 백엔드에서 받은 완전한 스레드 데이터로 업데이트
+        console.log('백엔드에서 받은 완전한 스레드:', response.data.thread);
+        
+        setSelectedThread(response.data.thread);
+        showCopyToast('답변이 생성되었습니다.');
+        
+        // 스레드 목록 새로고침
+        if (onRefreshThreads) {
+          onRefreshThreads();
+        }
+        
+        setIsLoading(false);
+        return true;
+      } else {
+        // API 실패 시 사용자 메시지 제거
+        if (selectedThread) {
+          const revertedThread = {
+            ...selectedThread,
+            messages: selectedThread.messages.slice(0, -1) // 마지막 사용자 메시지 제거
+          };
+          setSelectedThread(revertedThread);
+        }
+        console.error('해석 채팅 응답 오류:', response);
+        showCopyToast('답변 생성에 실패했습니다.');
+        setIsLoading(false);
+        return false;
+      }
+    } catch (error) {
+      // API 실패 시 사용자 메시지 제거
+      if (selectedThread) {
+        const revertedThread = {
+          ...selectedThread,
+          messages: selectedThread.messages.slice(0, -1) // 마지막 사용자 메시지 제거
+        };
+        setSelectedThread(revertedThread);
+      }
+      console.error('해석 채팅 오류:', error);
+      showCopyToast('네트워크 오류가 발생했습니다.');
+      setIsLoading(false);
+      return false;
+    }
+  };
+
+  // 토스트 메시지 표시 함수
+  const showCopyToast = (message: string) => {
+    setToastMessage(message);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 3000);
+  };
 
   // 스레드별 문장 데이터 로딩 (나아가기와 동일한 방식)
   const loadThreadSentenceData = async (threadId: string) => {
@@ -158,13 +281,6 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
         setHighlightedSentences(new Set());
       }
     };
-
-  // 토스트 메시지 표시 함수
-  const showCopyToast = (message: string) => {
-    setToastMessage(message);
-    setShowToast(true);
-    setTimeout(() => setShowToast(false), 3000);
-  };
 
   // 텍스트 복사 유틸리티 함수
   const copyToClipboard = async (text: string, successMessage: string) => {
@@ -203,16 +319,44 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
     setEditingMessageIndex(messageIndex);
   };
 
-  // 메시지 수정 완료
+
   const handleEditMessage = async (messageIndex: number, newContent: string) => {
-    if (onEditMessage) {
-      const success = await onEditMessage(messageIndex, newContent);
-      if (success) {
+    if (!selectedThread?.id) {
+      showCopyToast('스레드가 선택되지 않았습니다');
+      return false;
+    }
+
+    try {
+      setIsLoading(true);
+      
+      // 백엔드 API 호출
+      const response = await chatApi.editThreadMessage(selectedThread.id, messageIndex, newContent);
+      
+      if (response.data) {
+        // 백엔드에서 TrainingThread 객체를 직접 반환
+        const updatedThread = response.data as any; // TrainingThread
+        
+        // 즉시 로컬 상태 업데이트 (즉시 UI 반영)
+        setSelectedThread(updatedThread);
+        
+        // 부모 컴포넌트 새로고침 (스레드 목록 업데이트)
+        onRefreshThreads?.();
+        
         setEditingMessageIndex(null);
-        showCopyToast('메시지가 수정되었습니다');
+        showCopyToast('메시지가 수정되고 새로운 응답이 생성되었습니다');
+        setIsLoading(false);
+        return true;
       } else {
+        console.error('메시지 수정 실패:', response.error);
         showCopyToast('메시지 수정에 실패했습니다');
+        setIsLoading(false);
+        return false;
       }
+    } catch (error) {
+      console.error('메시지 수정 오류:', error);
+      showCopyToast('메시지 수정 중 오류가 발생했습니다');
+      setIsLoading(false);
+      return false;
     }
   };
 
@@ -393,7 +537,7 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
       const { chatApi } = await import('../../shared/api/chatApi');
       console.log('chatApi 가져옴');
       
-      const response = await chatApi.saveCurrentAsInterpretation(personaId, messageContent);
+      const response = await chatApi.saveCurrentAsInterpretation(personaId, messageContent, selectedThread?.messages);
       console.log('API 응답:', response);
       
       if (response.data && response.data.persona_id && response.data.interpretation) {
@@ -443,7 +587,7 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
     try {
       // chatApi를 통해 메시지 내용을 나아가기 스레드에 저장
       const { chatApi } = await import('../../shared/api/chatApi');
-      const response = await chatApi.saveCurrentAsProceed(personaId, messageContent);
+      const response = await chatApi.saveCurrentAsProceed(personaId, messageContent, selectedThread?.messages);
       
       if (response.data) {
         // 스레드 새로고침
@@ -472,7 +616,7 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
     try {
       // chatApi를 통해 메시지 내용을 문장 스레드에 저장
       const { chatApi } = await import('../../shared/api/chatApi');
-      const response = await chatApi.saveCurrentAsSentence(personaId, messageContent);
+      const response = await chatApi.saveCurrentAsSentence(personaId, messageContent, selectedThread?.messages);
       
       if (response.data) {
         // 스레드 새로고침
@@ -498,10 +642,8 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
       <ChatSection>
         <ChatMessages ref={chatMessagesRef}>
           {(() => {
-            // 표시할 메시지 결정: selectedThread가 있으면 그것을 우선 사용, 없으면 props의 messages 사용
-            const displayMessages = selectedThread && selectedThread.messages.length > 0 
-              ? selectedThread.messages 
-              : messages;
+            // 표시할 메시지 결정: selectedThread 기반으로만 표시 (나아가기/문장과 동일)
+            const displayMessages = selectedThread?.messages || [];
             
             // 메시지가 없는 경우 빈 채팅 화면 표시
             if (!displayMessages || displayMessages.length === 0) {
@@ -569,7 +711,7 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
             );
           })()}
           
-          {isLoading && (
+          {(isLoading) && (
             <LoadingMessage 
               personaName={personaName}
               personaColor="#6c757d"
@@ -580,7 +722,7 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
         <ChatInputSection>
           <MessageInput
             ref={messageInputRef}
-            onSendMessage={onSendMessage}
+            onSendMessage={handleSendMessage}
             disabled={isLoading}
             placeholder={`${personaName}에게 해석에 대해 질문해보세요...`}
             onToggleSentenceMode={handleToggleSentenceMode}
@@ -590,7 +732,7 @@ const InterpretationView: React.FC<InterpretationViewProps> = ({
             personaId={personaId}
             onGenerateProceed={handlePersonAction}
             onGenerateSentence={handleDocumentAction}
-            currentChatMessages={messages}
+            currentChatMessages={selectedThread?.messages || []}
             onRefreshThreads={onRefreshThreads}
           />
         </ChatInputSection>

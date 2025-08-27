@@ -113,6 +113,7 @@ interface ChatAreaProps {
   onUpdateConversation?: (updatedConversation: any) => void; // 대화 업데이트 핸들러
   onSwitchConversationMode?: (mode: string) => void; // 대화 모드 전환 핸들러
   onRefreshConversationSidebar?: () => void; // ConversationSidebar 새로고침 핸들러
+  conversationRefreshTrigger?: number; // ConversationSidebar 새로고침 트리거
   viewingRecentThread?: (TrainingThread & { persona_id: string; persona_name: string; }) | null;
   isRecentThreadLoading?: boolean;
   onNavigateToThread?: (threadId: string, threadType: string, interactionMessage?: string) => void;
@@ -149,6 +150,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onUpdateConversation,
   onSwitchConversationMode,
   onRefreshConversationSidebar,
+  conversationRefreshTrigger,
   recentInteractionsProps,
   verbalizationProps,
   viewingRecentThread,
@@ -185,9 +187,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         if (threadsResponse.data) {
           setThreads(threadsResponse.data);
           
+          // 현재 페르소나의 스레드 (이미 필터링됨)
+          const personaThreads = threadsResponse.data;
+          
           // 나아가기와 문장 스레드에서 콘텐츠 추출
-          const proceedThread = threadsResponse.data.find(t => t.thread_type === 'proceed');
-          const sentenceThread = threadsResponse.data.find(t => t.thread_type === 'sentence');
+          const proceedThread = personaThreads.find(t => t.thread_type === 'proceed');
+          const sentenceThread = personaThreads.find(t => t.thread_type === 'sentence');
           
           if (proceedThread && proceedThread.messages.length > 0) {
             const firstProceedMessage = proceedThread.messages.find(m => m.role === 'assistant');
@@ -210,6 +215,29 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
     loadTrainingData();
   }, [currentInterpretation?.personaId]);
+  
+  // ConversationSidebar 새로고침 트리거에 따라 스레드도 새로고침
+  useEffect(() => {
+    const reloadThreadsFromSidebar = async () => {
+      if (!currentInterpretation?.personaId) return;
+
+      try {
+        const threadsResponse = await chatApi.getPersonaThreads(currentInterpretation.personaId);
+        if (threadsResponse.data) {
+          console.log('ConversationSidebar 새로고침에 따라 ChatArea 스레드도 업데이트:', threadsResponse.data.length);
+          setThreads(threadsResponse.data);
+        }
+      } catch (error) {
+        console.error('스레드 새로고침 실패:', error);
+      }
+    };
+
+    // conversationRefreshTrigger가 변경될 때마다 스레드 새로고침
+    if (conversationRefreshTrigger && conversationRefreshTrigger > 0 && currentInterpretation?.personaId) {
+      console.log('conversationRefreshTrigger 변경에 따른 스레드 새로고침:', conversationRefreshTrigger);
+      reloadThreadsFromSidebar();
+    }
+  }, [conversationRefreshTrigger, currentInterpretation?.personaId]);
 
   // 스레드 업데이트 시 콘텐츠도 업데이트
   useEffect(() => {
@@ -268,50 +296,71 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return success;
   };
 
-  // 해석 메시지 수정 핸들러
-  const handleEditInterpretationMessage = async (messageIndex: number, newContent: string): Promise<boolean> => {
-    if (!currentInterpretation) return false;
+  // 통합된 메시지 수정 핸들러
+  const handleEditMessage = async (messageIndex: number, newContent: string): Promise<boolean> => {
+    // 해석 모드인 경우
+    if (currentInterpretation) {
+      try {
+        // 메시지 수정 - 수정 후 새로운 응답 자동 생성
+        const updatedMessages = [...currentInterpretation.messages];
+        if (messageIndex >= 0 && messageIndex < updatedMessages.length) {
+          // 수정된 메시지 업데이트
+          updatedMessages[messageIndex] = {
+            ...updatedMessages[messageIndex],
+            content: newContent,
+            timestamp: new Date().toISOString(),
+          };
 
-    try {
-      // 메시지 수정 - 수정 후 새로운 응답 자동 생성
-      const updatedMessages = [...currentInterpretation.messages];
-      if (messageIndex >= 0 && messageIndex < updatedMessages.length) {
-        // 수정된 메시지 업데이트
-        updatedMessages[messageIndex] = {
-          ...updatedMessages[messageIndex],
-          content: newContent,
-          timestamp: new Date().toISOString(),
-        };
+          // 수정된 메시지 이후의 모든 메시지들 제거
+          const filteredMessages = updatedMessages.slice(0, messageIndex + 1);
 
-        // 수정된 메시지 이후의 모든 메시지들 제거
-        const filteredMessages = updatedMessages.slice(0, messageIndex + 1);
+          // 백엔드 API를 통해 새로운 AI 응답 생성
+          try {
+            const response = await chatApi.chatWithInterpretation(
+              currentInterpretation.personaId,
+              newContent
+            );
 
-        // 백엔드 API를 통해 새로운 AI 응답 생성
-        try {
-          const response = await chatApi.chatWithInterpretation(
-            currentInterpretation.personaId,
-            newContent
-          );
+            if (response.data) {
+              const aiResponse = {
+                role: 'assistant' as const,
+                content: response.data.response,
+                timestamp: response.data.timestamp,
+              };
 
-          if (response.data) {
-            const aiResponse = {
-              role: 'assistant' as const,
-              content: response.data.response,
-              timestamp: response.data.timestamp,
-            };
+              const updatedInterpretation = {
+                ...currentInterpretation,
+                messages: [...filteredMessages, aiResponse],
+              };
 
-            const updatedInterpretation = {
-              ...currentInterpretation,
-              messages: [...filteredMessages, aiResponse],
-            };
+              // 상위 컴포넌트에 업데이트 알림
+              if (onUpdateInterpretation) {
+                onUpdateInterpretation(updatedInterpretation);
+              }
 
-            // 상위 컴포넌트에 업데이트 알림
-            if (onUpdateInterpretation) {
-              onUpdateInterpretation(updatedInterpretation);
+              return true;
+            } else {
+              // API 호출 실패 시 로컬에서 임시 응답 생성
+              const aiResponse = {
+                role: 'assistant' as const,
+                content: `${currentInterpretation.personaName}의 관점에서 수정된 메시지에 대해 새롭게 응답드리겠습니다.\n\n"${newContent}"에 대해 분석해보면, 이는 이전과는 다른 맥락을 제시하고 있습니다. 수정된 내용을 바탕으로 새로운 해석과 통찰을 제공하겠습니다.`,
+                timestamp: new Date().toISOString(),
+              };
+
+              const updatedInterpretation = {
+                ...currentInterpretation,
+                messages: [...filteredMessages, aiResponse],
+              };
+
+              if (onUpdateInterpretation) {
+                onUpdateInterpretation(updatedInterpretation);
+              }
+
+              return true;
             }
-
-            return true;
-          } else {
+          } catch (apiError) {
+            console.error('해석 API 호출 실패:', apiError);
+            
             // API 호출 실패 시 로컬에서 임시 응답 생성
             const aiResponse = {
               role: 'assistant' as const,
@@ -330,57 +379,37 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
             return true;
           }
-        } catch (apiError) {
-          console.error('해석 API 호출 실패:', apiError);
-          
-          // API 호출 실패 시 로컬에서 임시 응답 생성
-          const aiResponse = {
-            role: 'assistant' as const,
-            content: `${currentInterpretation.personaName}의 관점에서 수정된 메시지에 대해 새롭게 응답드리겠습니다.\n\n"${newContent}"에 대해 분석해보면, 이는 이전과는 다른 맥락을 제시하고 있습니다. 수정된 내용을 바탕으로 새로운 해석과 통찰을 제공하겠습니다.`,
-            timestamp: new Date().toISOString(),
-          };
-
-          const updatedInterpretation = {
-            ...currentInterpretation,
-            messages: [...filteredMessages, aiResponse],
-          };
-
-          if (onUpdateInterpretation) {
-            onUpdateInterpretation(updatedInterpretation);
-          }
-
-          return true;
         }
-      }
-      return false;
-    } catch (error) {
-      console.error('해석 메시지 수정 실패:', error);
-      return false;
-    }
-  };
-
-  // 일반 대화 메시지 수정 핸들러
-  const handleEditConversationMessage = async (messageIndex: number, newContent: string): Promise<boolean> => {
-    if (!selectedConversation || !currentConversation) return false;
-
-    try {
-      const result = await chatApi.editMessage(selectedConversation, messageIndex, newContent);
-      
-      if (result.data?.success && result.data.updated_conversation) {
-        // 수정된 대화 정보로 즉시 UI 업데이트
-        if (onUpdateConversation) {
-          onUpdateConversation(result.data.updated_conversation);
-        }
-        
-        return true;
-      } else {
-        console.error('메시지 수정 실패:', result.error);
+        return false;
+      } catch (error) {
+        console.error('해석 메시지 수정 실패:', error);
         return false;
       }
-    } catch (error) {
-      console.error('메시지 수정 요청 실패:', error);
-      return false;
     }
+    
+    // 일반 대화 모드인 경우
+    if (selectedConversation && currentConversation) {
+      try {
+        const result = await chatApi.editMessage(selectedConversation, messageIndex, newContent);
+        
+        if (result.data?.success && result.data.updated_conversation) {
+          // 수정된 대화 정보로 즉시 UI 업데이트
+          if (onUpdateConversation) {
+            onUpdateConversation(result.data.updated_conversation);
+          }
+          
+          return true;
+        } else {
+          console.error('메시지 수정 실패:', result.error);
+          return false;
+        }
+      } catch (error) {
+        console.error('메시지 수정 요청 실패:', error);
+        return false;
+      }
+    }
+    
+    return false;
   };
 
 
@@ -452,10 +481,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         }}
         onEdit={message.role === 'user' ? () => setEditingMessageIndex(index) : undefined}
         onEditSave={message.role === 'user' ? async (newContent) => {
-          const success = await handleEditConversationMessage(index, newContent);
-                  if (success) {
-          setEditingMessageIndex(null);
-        }
+          const success = await handleEditMessage(index, newContent);
+          if (success) {
+            setEditingMessageIndex(null);
+          }
           return success;
         } : undefined}
         onEditCancel={() => setEditingMessageIndex(null)}
@@ -502,12 +531,24 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
-  // 선택된 스레드 추출
+  // 선택된 스레드 추출 (최신 데이터로 업데이트)
   const getSelectedThread = (conversationItem: string | null | undefined): TrainingThread | null => {
     if (!conversationItem || !conversationItem.includes('-thread-')) return null;
     
     const threadId = conversationItem.split('-thread-')[1];
-    return threads.find(thread => thread.id === threadId) || null;
+    const foundThread = threads.find(thread => thread.id === threadId);
+    
+    if (foundThread) {
+      console.log('스레드 발견:', {
+        threadId: foundThread.id,
+        threadType: foundThread.thread_type,
+        messageCount: foundThread.messages?.length || 0
+      });
+    } else {
+      console.warn('스레드를 찾을 수 없음:', threadId, '사용 가능한 스레드:', threads.map(t => t.id));
+    }
+    
+    return foundThread || null;
   };
 
   // 스레드 새로고침 함수
@@ -600,16 +641,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     if (isInterpretationThread) {
       selectedThread = getSelectedThread(selectedConversationItem);
+    } else if (!isInterpretationThread && threads?.length > 0) {
+      // 해석 스레드가 명시적으로 선택되지 않았지만 해석 스레드가 존재하는 경우, 가장 최근 스레드를 사용
+      const interpretationThreads = threads.filter(t => t.thread_type === 'interpretation');
+      if (interpretationThreads.length > 0) {
+        selectedThread = interpretationThreads[0]; // 첫 번째 스레드가 가장 최근 스레드
+        console.log('자동 선택된 최근 해석 스레드:', selectedThread?.id);
+      }
     }
     
-    // 사용할 메시지들 결정: 명시적으로 해석 스레드가 선택된 경우에만 스레드 메시지 사용
-    const messagesToShow = isInterpretationThread && selectedThread 
+    // 사용할 메시지들 결정: 스레드가 있으면 스레드 메시지, 없으면 현재 해석 메시지
+    const messagesToShow = selectedThread && selectedThread.messages?.length > 0
       ? selectedThread.messages 
       : currentInterpretation.messages;
     
-    // 사용할 해석 내용 결정: 명시적으로 해석 스레드가 선택된 경우에만 스레드 content 사용
-    const interpretationContent = isInterpretationThread && selectedThread 
-      ? (selectedThread.content || (selectedThread.messages.length > 0 ? selectedThread.messages[0].content : currentInterpretation.content))
+    // 사용할 해석 내용 결정: 스레드가 있으면 스레드 content, 없으면 현재 해석 content
+    const interpretationContent = selectedThread 
+      ? (selectedThread.content || (selectedThread.messages?.length > 0 ? selectedThread.messages[0].content : currentInterpretation.content))
       : currentInterpretation.content;
 
     console.log('해석 뷰 렌더링:', {
@@ -617,16 +665,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       selectedThreadId: selectedThread?.id,
       selectedConversationItem,
       messageCount: messagesToShow.length,
-      contentPreview: interpretationContent.substring(0, 100) + '...'
+      contentPreview: interpretationContent.substring(0, 100) + '...',
+      hasInterpretationThreads: threads.filter(t => t.thread_type === 'interpretation').length || 0,
+      autoSelectedThread: !isInterpretationThread && selectedThread ? true : false
     });
 
     return (
       <InterpretationView
         interpretation={interpretationContent}
         personaName={currentInterpretation.personaName}
-        onSendMessage={onInterpretationMessage}
-        onEditMessage={handleEditInterpretationMessage}
-        isLoading={isLoading}
+        onSendMessage={() => Promise.resolve(true)}
+        onEditMessage={handleEditMessage}
         messages={messagesToShow}
         onGenerateNewInterpretation={handleGenerateNewInterpretation}
         onSwitchToMode={handleSwitchToMode}

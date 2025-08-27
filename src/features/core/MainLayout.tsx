@@ -59,7 +59,7 @@ const MainLayout: React.FC = () => {
   } = useChat();
 
   // 브라우저 히스토리 관리
-  const { navigateTo, parseInitialState } = useBrowserHistory({
+  const { parseInitialState } = useBrowserHistory({
     selectedPersonaItem,
     selectedConversationItem,
     currentPersonaId: currentInterpretation?.personaId,
@@ -483,124 +483,10 @@ const MainLayout: React.FC = () => {
     setConversationRefreshTrigger(prev => prev + 1);
   };
 
-  // 해석 채팅 메시지 전송 핸들러
+  // 해석 채팅 메시지 전송 핸들러 (더미 함수 - InterpretationView에서 직접 처리)
   const handleInterpretationMessage = async (message: string): Promise<boolean> => {
-    if (!currentInterpretation) return false;
-
-    // 해석 스레드가 선택되었는지 확인
-    const isInterpretationThread = selectedConversationItem?.startsWith('interpretation-thread-');
-    const selectedThreadId = isInterpretationThread && selectedConversationItem ? selectedConversationItem.split('-thread-')[1] : null;
-
-    console.log('해석 메시지 전송:', {
-      isInterpretationThread,
-      selectedThreadId,
-      selectedConversationItem
-    });
-
-    // 사용자 메시지를 로컬 상태에 즉시 추가 (UI 반응성)
-    const userMessage = {
-      role: 'user' as const,
-      content: message,
-      timestamp: new Date().toISOString(),
-    };
-
-    // 로딩 상태 시작
-    setIsInterpretationLoading(true);
-
-    try {
-      if (isInterpretationThread && selectedThreadId) {
-        // 특정 해석 스레드와 채팅
-        console.log('특정 해석 스레드와 채팅:', selectedThreadId);
-        
-        const response = await chatApi.chatWithThread({
-          thread_id: selectedThreadId,
-          user_message: message
-        });
-
-        if (response.data) {
-          // 현재 해석 상태의 메시지에 추가하지 않고, 
-          // ChatArea에서 새로고침하여 스레드 데이터 다시 로딩하도록 함
-          setIsInterpretationLoading(false);
-          
-          // 스레드 새로고침을 위해 ConversationSidebar 새로고침 트리거
-          setConversationRefreshTrigger(prev => prev + 1);
-          
-          console.log('특정 해석 스레드 채팅 성공');
-          return true;
-        } else {
-          console.error('해석 스레드 채팅 API 실패:', response.error);
-          setIsInterpretationLoading(false);
-          return false;
-        }
-      } else {
-        // 기본 해석 기반 채팅 (멀티턴 지원)
-        console.log('기본 해석 기반 채팅 (멀티턴 지원)');
-        
-        // 사용자 메시지를 currentInterpretation에 추가
-        setCurrentInterpretation(prev => prev ? {
-          ...prev,
-          messages: [...prev.messages, userMessage],
-        } : null);
-
-        // /chat/with-context 엔드포인트 사용하여 멀티턴 지원
-        const response = await chatApi.chatWithContext({
-          persona_id: currentInterpretation.personaId,
-          user_message: message,
-          context_type: 'interpretation',
-          context_content: currentInterpretation.content,
-          thread_id: undefined // 기본 스레드 사용
-        });
-
-        if (response.data) {
-          const assistantMessage = {
-            role: 'assistant' as const,
-            content: response.data.response,
-            timestamp: response.data.timestamp,
-          };
-
-          setCurrentInterpretation(prev => prev ? {
-            ...prev,
-            messages: [...prev.messages, assistantMessage],
-          } : null);
-
-          setIsInterpretationLoading(false);
-          return true;
-        } else {
-          // API 호출 실패 시 폴백
-          console.error('해석 기반 채팅 API 실패:', response.error);
-        const fallbackMessage = {
-          role: 'assistant' as const,
-          content: `죄송합니다. 일시적으로 응답 생성에 문제가 발생했습니다. 잠시 후 다시 시도해주세요.`,
-          timestamp: new Date().toISOString(),
-        };
-
-        setCurrentInterpretation(prev => prev ? {
-          ...prev,
-          messages: [...prev.messages, fallbackMessage],
-        } : null);
-
-        setIsInterpretationLoading(false);
-        return false;
-        }
-      }
-    } catch (error) {
-      console.error('해석 채팅 오류:', error);
-      
-      // 에러 발생 시 폴백 메시지
-      const errorMessage = {
-        role: 'assistant' as const,
-        content: `네트워크 오류가 발생했습니다. 연결을 확인하고 다시 시도해주세요.`,
-        timestamp: new Date().toISOString(),
-      };
-
-      setCurrentInterpretation(prev => prev ? {
-        ...prev,
-        messages: [...prev.messages, errorMessage],
-      } : null);
-
-      setIsInterpretationLoading(false);
-      return false;
-    }
+    console.log('MainLayout의 handleInterpretationMessage는 더 이상 사용되지 않습니다. InterpretationView에서 직접 처리합니다.');
+    return true;
   };
 
   // 해석 업데이트 핸들러
@@ -890,7 +776,7 @@ const MainLayout: React.FC = () => {
 
   // ConversationSidebar 표시 여부 확인
   const shouldShowConversationSidebar = 
-    (selectedPersonaItem !== 'training' && selectedPersonaItem !== 'admin' && selectedPersonaItem !== 'verbalization' && selectedPersonaItem !== 'vault' && currentInterpretation) ||
+    (selectedPersonaItem !== 'training' && selectedPersonaItem !== 'admin' && selectedPersonaItem !== 'verbalization' && selectedPersonaItem !== 'vault' && selectedPersonaItem !== 'stimulus' && currentInterpretation) ||
     selectedPersonaItem === 'recent' ||
     selectedPersonaItem === 'verbalization';
 
@@ -957,6 +843,7 @@ const MainLayout: React.FC = () => {
           onUpdateConversation={handleUpdateConversation}
           onSwitchConversationMode={handleSwitchConversationMode}
           onRefreshConversationSidebar={handleRefreshConversationSidebar}
+          conversationRefreshTrigger={conversationRefreshTrigger}
             recentInteractionsProps={{
               personas,
               onSelectPersona: handleRecentPersonaSelect,

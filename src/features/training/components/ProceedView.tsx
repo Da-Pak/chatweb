@@ -14,11 +14,12 @@ interface ProceedViewProps {
   personaId: string;
   personaName: string;
   proceedContent: string;
-  threads: TrainingThread[];
+  onRefreshThreads?: () => void;
   onSwitchToMode: (mode: 'interpretation' | 'proceed' | 'sentence') => void;
   onGenerateNewInterpretation: () => void;
+
   selectedThread: TrainingThread | null;
-  onRefreshThreads?: () => void;
+  threads: TrainingThread[];
 }
 
 const Container = styled.div`
@@ -82,15 +83,11 @@ const ProceedView: React.FC<ProceedViewProps> = ({
   personaId,
   personaName,
   proceedContent,
-  threads,
-  onSwitchToMode,
-  onGenerateNewInterpretation,
   selectedThread: propSelectedThread,
   onRefreshThreads,
 }) => {
   const [selectedThread, setSelectedThread] = useState<TrainingThread | null>(propSelectedThread || null);
   const [isLoading, setIsLoading] = useState(false);
-  const [localThreads, setLocalThreads] = useState<TrainingThread[]>(threads);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<MessageInputRef>(null);
   const [showToast, setShowToast] = useState(false);
@@ -103,21 +100,25 @@ const ProceedView: React.FC<ProceedViewProps> = ({
   const [isSentenceModeActive, setIsSentenceModeActive] = useState(false);
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
 
-  // 나아가기 스레드만 필터링
-  const proceedThreads = localThreads.filter(thread => thread.thread_type === 'proceed');
-
-  useEffect(() => {
-    setLocalThreads(threads);
-  }, [threads]);
-
-  // 선택된 스레드 변경 시 처리
+  // 선택된 스레드 변경 시 스레드별 문장 데이터 로딩 (InterpretationView와 동일)
   useEffect(() => {
     if (propSelectedThread) {
-      console.log('선택된 스레드 변경:', propSelectedThread.id);
+      console.log('=== 나아가기 스레드 변경 시작 ===');
+      console.log('새로운 스레드 ID:', propSelectedThread.id);
+      console.log('새로운 스레드 메시지 개수:', propSelectedThread.messages?.length || 0);
+      
       setSelectedThread(propSelectedThread);
       
       // 스레드별 문장 데이터 로딩
       loadThreadSentenceData(propSelectedThread.id);
+      
+      console.log('=== 나아가기 스레드 변경 완료 ===');
+    } else {
+      console.log('선택된 스레드가 해제됨');
+      setSelectedThread(null);
+      // 스레드가 없으면 상태 초기화
+      setMemos({});
+      setHighlightedSentences(new Set());
     }
   }, [propSelectedThread]);
 
@@ -152,90 +153,87 @@ const ProceedView: React.FC<ProceedViewProps> = ({
     }
   }, [selectedThread?.messages]);
 
+  // 메시지 전송 처리 (InterpretationView와 동일한 구조)
   const handleSendMessage = async (message: string): Promise<boolean> => {
-    // 선택된 스레드가 없으면 기본 스레드 생성
-    let currentThread = selectedThread;
-    if (!currentThread) {
-      // 나아가기 타입의 첫 번째 스레드를 찾거나 기본 스레드 생성
-      const proceedThread = proceedThreads[0];
-      if (proceedThread) {
-        currentThread = proceedThread;
-        setSelectedThread(currentThread);
-      } else {
-        // 기본 스레드 생성 (UI용)
-        const defaultThread: TrainingThread = {
-          id: `proceed_default_${personaId}`,
-          persona_id: personaId,
-          thread_type: 'proceed',
-          content: proceedContent,
-          messages: [{
-            role: 'assistant',
-            content: proceedContent,
-            timestamp: new Date().toISOString(),
-            persona_id: personaId,
-            persona_name: personaName
-          }],
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        currentThread = defaultThread;
-        setSelectedThread(currentThread);
-        
-        // 로컬 스레드 목록에도 추가
-        const updatedThreads = [...localThreads, defaultThread];
-        setLocalThreads(updatedThreads);
-        onRefreshThreads?.();
-      }
-    }
-    
-    // 1. 사용자 메시지를 즉시 UI에 추가
+    if (!message.trim()) return false;
+
+    // 사용자 메시지를 즉시 추가하여 UI에 표시
     const userMessage = {
       role: 'user' as const,
       content: message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      persona_id: personaId
     };
-    
-    const updatedThread = {
-      ...currentThread,
-      messages: [...currentThread.messages, userMessage],
-      updated_at: new Date().toISOString()
-    };
-    
-    setSelectedThread(updatedThread);
-    
-    // 2. 로딩 상태 시작
+
+    // 먼저 사용자 메시지를 로컬 상태에 추가
+    if (selectedThread) {
+      const updatedThread = {
+        ...selectedThread,
+        messages: [...selectedThread.messages, userMessage]
+      };
+      setSelectedThread(updatedThread);
+    }
+
+    // 로딩 상태 시작
     setIsLoading(true);
-    
+
     try {
-      // 3. 백엔드 API 호출
-      console.log('=== ProceedView API 호출 시작 ===');
-      console.log('요청 데이터:', { thread_id: currentThread.id, user_message: message });
-      
+      console.log('=== 나아가기 메시지 전송 시작 ===');
+      console.log('현재 선택된 스레드:', selectedThread);
+      console.log('메시지:', message);
+
+      if (!selectedThread?.id) {
+        showCopyToast('선택된 스레드가 없습니다.');
+        setIsLoading(false);
+        return false;
+      }
+
+      // chatWithThread API 사용 (InterpretationView와 동일)
       const response = await chatApi.chatWithThread({
-        thread_id: currentThread.id,
+        thread_id: selectedThread.id,
         user_message: message
       });
 
-      console.log('=== API 응답 받음 ===');
-      console.log('전체 응답:', response);
-      console.log('response.data:', response.data);
-      console.log('response.error:', response.error);
+      console.log('=== 나아가기 API 응답 ===');
+      console.log('응답:', response);
 
       if (response.data && response.data.success) {
-        // 4. 백엔드에서 이미 완전한 스레드 데이터를 반환하므로 그대로 사용
-        console.log('백엔드에서 받은 완전한 스레드:', response.data.thread);
-        
+        // 백엔드에서 받은 완전한 스레드 데이터로 업데이트
         setSelectedThread(response.data.thread);
-        setIsLoading(false);
         showCopyToast('답변이 생성되었습니다.');
+        
+        // 스레드 목록 새로고침
+        if (onRefreshThreads) {
+          onRefreshThreads();
+        }
+        
+        setIsLoading(false);
         return true;
       } else {
+        // API 실패 시 사용자 메시지 제거
+        if (selectedThread) {
+          const revertedThread = {
+            ...selectedThread,
+            messages: selectedThread.messages.slice(0, -1) // 마지막 사용자 메시지 제거
+          };
+          setSelectedThread(revertedThread);
+        }
         console.error('나아가기 채팅 응답 오류:', response);
+        showCopyToast('답변 생성에 실패했습니다.');
         setIsLoading(false);
         return false;
       }
     } catch (error) {
+      // API 실패 시 사용자 메시지 제거
+      if (selectedThread) {
+        const revertedThread = {
+          ...selectedThread,
+          messages: selectedThread.messages.slice(0, -1) // 마지막 사용자 메시지 제거
+        };
+        setSelectedThread(revertedThread);
+      }
       console.error('나아가기 채팅 오류:', error);
+      showCopyToast('네트워크 오류가 발생했습니다.');
       setIsLoading(false);
       return false;
     }
@@ -270,24 +268,10 @@ const ProceedView: React.FC<ProceedViewProps> = ({
   };
 
   const handleEditMessage = async (messageIndex: number, newContent: string) => {
-    console.log('=== handleEditMessage 호출 ===');
-    console.log('messageIndex:', messageIndex);
-    console.log('newContent:', newContent);
-    console.log('selectedThread:', selectedThread);
-    console.log('selectedThread.messages:', selectedThread?.messages);
-    
     if (!selectedThread?.id) {
-      console.log('스레드 ID가 없습니다');
       showCopyToast('스레드가 선택되지 않았습니다');
       return false;
     }
-
-    console.log('스레드 ID:', selectedThread.id);
-    console.log('요청할 API 정보:', {
-      threadId: selectedThread.id,
-      messageIndex,
-      newContent: newContent.substring(0, 100) + '...'
-    });
 
     try {
       setIsLoading(true);
@@ -295,24 +279,20 @@ const ProceedView: React.FC<ProceedViewProps> = ({
       // 백엔드 API 호출
       const response = await chatApi.editThreadMessage(selectedThread.id, messageIndex, newContent);
       
-      console.log('API 응답:', response);
-      
-      if (response.data?.success && response.data.updated_thread) {
-        console.log('수정 성공, 스레드 업데이트 중...');
-        // 스레드 업데이트
-        setSelectedThread(response.data.updated_thread);
+      if (response.data) {
+        // 백엔드에서 TrainingThread 객체를 직접 반환
+        const updatedThread = response.data as any; // TrainingThread
         
-        // 로컬 스레드 목록도 업데이트
-        const updatedThreads = localThreads.map(t => 
-          t.id === selectedThread.id ? response.data!.updated_thread! : t
-        );
-        setLocalThreads(updatedThreads);
+        // 즉시 로컬 상태 업데이트 (즉시 UI 반영)
+        setSelectedThread(updatedThread);
+        
+        // 부모 컴포넌트 새로고침 (스레드 목록 업데이트)
         onRefreshThreads?.();
         
-    setEditingMessageIndex(null);
+        setEditingMessageIndex(null);
         showCopyToast('메시지가 수정되고 새로운 응답이 생성되었습니다');
         setIsLoading(false);
-    return true;
+        return true;
       } else {
         console.error('메시지 수정 실패:', response.error);
         showCopyToast('메시지 수정에 실패했습니다');
@@ -440,7 +420,7 @@ const ProceedView: React.FC<ProceedViewProps> = ({
     
     try {
       // chatApi를 통해 메시지 내용을 해석 스레드에 저장
-      const response = await chatApi.saveCurrentAsInterpretation(personaId, messageContent);
+      const response = await chatApi.saveCurrentAsInterpretation(personaId, messageContent, selectedThread?.messages);
       
       if (response.data) {
         // 스레드 새로고침
@@ -468,7 +448,7 @@ const ProceedView: React.FC<ProceedViewProps> = ({
     
     try {
       // chatApi를 통해 메시지 내용을 나아가기 스레드에 저장
-      const response = await chatApi.saveCurrentAsProceed(personaId, messageContent);
+      const response = await chatApi.saveCurrentAsProceed(personaId, messageContent, selectedThread?.messages);
       
       if (response.data) {
         // 스레드 새로고침
@@ -497,7 +477,7 @@ const ProceedView: React.FC<ProceedViewProps> = ({
     
     try {
       // chatApi를 통해 메시지 내용을 문장 스레드에 저장
-      const response = await chatApi.saveCurrentAsSentence(personaId, messageContent);
+      const response = await chatApi.saveCurrentAsSentence(personaId, messageContent, selectedThread?.messages);
       
       if (response.data) {
         // 스레드 새로고침 (문장 모드로 전환하지 않고 백그라운드에서만 저장)
@@ -515,27 +495,10 @@ const ProceedView: React.FC<ProceedViewProps> = ({
     }
   };
 
-  // 스레드 새로고침 함수
+  // 스레드 새로고침 함수 (부모에게 위임)
   const handleRefreshThreads = async () => {
-          try {
-            const threadsResponse = await chatApi.getPersonaThreads(personaId);
-            if (threadsResponse.data) {
-              const updatedThreads = threadsResponse.data;
-              setLocalThreads(updatedThreads);
-              onRefreshThreads?.();
-              
-              // 새로 생성된 나아가기 스레드 선택
-              const newProceedThread = updatedThreads
-                .filter(t => t.thread_type === 'proceed')
-                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-              
-        if (newProceedThread && (!selectedThread || newProceedThread.id !== selectedThread.id)) {
-                setSelectedThread(newProceedThread);
-          showCopyToast('새로운 나아가기가 생성되었습니다');
-        }
-      }
-    } catch (error) {
-      console.error('스레드 새로고침 실패:', error);
+    if (onRefreshThreads) {
+      onRefreshThreads();
     }
   };
 
@@ -553,140 +516,8 @@ const ProceedView: React.FC<ProceedViewProps> = ({
       return '';
     }).filter(text => text.length > 0);
 
-    switch (action) {
-      case 'sendToInput':
-        if (messageInputRef.current && selectedTexts.length > 0) {
-          const formattedText = selectedTexts.map(text => `"${text}"`).join(', ');
-          messageInputRef.current.insertText(formattedText);
-        }
-        break;
-      
-      case 'saveToVault':
-        try {
-          // 선택된 문장들의 하이라이트/메모 상태 수집
-          const highlightStates: boolean[] = [];
-          const highlightColors: (string | null)[] = [];
-          const memoContents: (string | null)[] = [];
-          
-          for (const sentenceId of selectedIds) {
-            const isHighlighted = highlightedSentences.has(sentenceId);
-            const memoContent = memos[sentenceId] || null;
-            
-            highlightStates.push(isHighlighted);
-            highlightColors.push(isHighlighted ? 'yellow' : null);
-            memoContents.push(memoContent);
-          }
-
-          await sentenceApi.saveSentencesToVault({
-            sentences: selectedTexts,
-            source_message_id: `proceed_${personaId}`,
-            source_conversation_id: selectedThread?.id,
-            source_thread_id: selectedThread?.id,
-            source_thread_type: 'proceed',
-            source_sentence_ids: selectedIds,
-            tags: ['proceed', personaId],
-            highlight_states: highlightStates,
-            highlight_colors: highlightColors,
-            memo_contents: memoContents
-          });
-          
-          // 백엔드에 하이라이트도 저장 (기존 로직 유지)
-          if (selectedThread?.id) {
-            for (const sentenceId of selectedIds) {
-              await sentenceApi.createHighlight({
-                sentence_id: sentenceId,
-                thread_id: selectedThread.id,
-                thread_type: 'proceed'
-              });
-            }
-          }
-          
-          // 성공 시 로컬 상태 업데이트
-          setHighlightedSentences(prev => new Set([...Array.from(prev), ...selectedIds]));
-          
-          showCopyToast('저장고에 저장되었습니다 (하이라이트/메모 정보 포함)');
-        } catch (error) {
-          console.error('저장고 저장 실패:', error);
-          showCopyToast('저장고 저장에 실패했습니다');
-        }
-        break;
-      
-      case 'addMemo':
-        // 새로운 통합된 메뉴 액션 사용
-        await proceedMenuActions.handleAddMemo(selectedIds, selectedTexts);
-        break;
-      
-      case 'highlight':
-        if (selectedIds.length > 0 && selectedThread?.id) {
-          try {
-            console.log('하이라이트 토글 시작:', selectedIds);
-            
-            // 현재 하이라이트된 문장들과 선택된 문장들을 비교
-            const currentlyHighlighted = selectedIds.filter(id => highlightedSentences.has(id));
-            const notHighlighted = selectedIds.filter(id => !highlightedSentences.has(id));
-            
-            console.log('현재 하이라이트된 문장들:', currentlyHighlighted);
-            console.log('아직 하이라이트되지 않은 문장들:', notHighlighted);
-            
-            if (currentlyHighlighted.length > 0) {
-              // 일부가 하이라이트되어 있으면 모두 제거
-              console.log('기존 하이라이트 제거 중...');
-              
-              // 로컬 상태에서 하이라이트 제거
-              setHighlightedSentences(prev => {
-                const newSet = new Set(prev);
-                selectedIds.forEach(id => newSet.delete(id));
-                return newSet;
-              });
-              
-              // 백엔드에서 하이라이트 삭제
-              for (const sentenceId of selectedIds) {
-                try {
-                  await sentenceApi.deleteHighlight(sentenceId);
-                } catch (error) {
-                  console.warn('백엔드 하이라이트 삭제 실패:', error);
-                }
-              }
-              
-              showCopyToast('하이라이트가 제거되었습니다');
-            } else {
-              // 모두 하이라이트되지 않았으면 모두 추가
-              console.log('새 하이라이트 추가 중...');
-              
-              // 로컬 상태에 하이라이트 추가
-              setHighlightedSentences(prev => new Set([...Array.from(prev), ...selectedIds]));
-              
-              // 백엔드에 하이라이트 저장
-              for (const sentenceId of selectedIds) {
-                try {
-                  await sentenceApi.createHighlight({
-                    sentence_id: sentenceId,
-                    thread_id: selectedThread.id,
-                    thread_type: 'proceed'
-                  });
-                } catch (error) {
-                  console.warn('백엔드 하이라이트 저장 실패:', error);
-                }
-              }
-              
-              showCopyToast('하이라이트가 추가되었습니다');
-            }
-          } catch (error) {
-            console.error('하이라이트 토글 실패:', error);
-            showCopyToast('하이라이트 처리에 실패했습니다');
-          }
-        }
-        break;
-      
-      case 'copy':
-        if (selectedTexts.length > 0) {
-          await copyToClipboard(selectedTexts.join(' '), '선택된 문장이 복사되었습니다');
-        }
-        break;
-    }
-
-    // 모든 선택 해제
-    setSelectedSentences(new Set());
+    // 새로운 통합된 메뉴 액션 사용
+    await proceedMenuActions.handleMenuAction(action, selectedIds, selectedTexts, messageInputRef);
   };
 
   // 문장선택 모드 토글
@@ -702,16 +533,25 @@ const ProceedView: React.FC<ProceedViewProps> = ({
       
       <ChatSection>
         <ChatMessages ref={chatMessagesRef}>
-          {!selectedThread || selectedThread.messages.length === 0 ? (
-            <EmptyChat>
-              <div style={{ fontSize: '24px', marginBottom: '8px' }}>🎯</div>
-              <div>나아가기에 대해 더 자세히 질문해보세요</div>
-              <div style={{ fontSize: '12px', marginTop: '4px' }}>
-                {personaName}와 대화를 나눌 수 있습니다
-              </div>
-            </EmptyChat>
-          ) : (
-            selectedThread.messages.map((message, index) => 
+          {(() => {
+            // 표시할 메시지 결정: selectedThread 기반으로만 표시 (InterpretationView와 동일)
+            const displayMessages = selectedThread?.messages || [];
+            
+            // 메시지가 없는 경우 빈 채팅 화면 표시
+            if (!displayMessages || displayMessages.length === 0) {
+              return (
+                <EmptyChat>
+                  <div style={{ fontSize: '24px', marginBottom: '8px' }}>🎯</div>
+                  <div>나아가기에 대해 더 자세히 질문해보세요</div>
+                  <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                    {personaName}와 대화를 나눌 수 있습니다
+                  </div>
+                </EmptyChat>
+              );
+            }
+            
+            // 메시지들을 렌더링
+            return displayMessages.map((message, index) => 
               message.role === 'user' ? (
                 <Message
                   key={`proceed_${index}`}
@@ -760,13 +600,13 @@ const ProceedView: React.FC<ProceedViewProps> = ({
                   onDocumentAction={(messageContent) => handleDocumentAction(messageContent)}
                 />
               )
-            )
-          )}
+            );
+          })()}
           
           {isLoading && (
             <LoadingMessage 
               personaName={personaName}
-              personaColor="#ff9800"
+              personaColor="#6c757d"
               customMessage="응답 생성중..."
             />
           )}
@@ -801,4 +641,4 @@ const ProceedView: React.FC<ProceedViewProps> = ({
   );
 };
 
-export default ProceedView; 
+export default ProceedView;

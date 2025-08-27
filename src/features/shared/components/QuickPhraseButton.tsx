@@ -138,7 +138,7 @@ const QuickPhraseButton: React.FC<QuickPhraseButtonProps> = ({
       setShowMenu(false);
   };
 
-  const isGenerationAvailable = true; // 프롬프트 텍스트 삽입이므로 항상 사용 가능
+  // const isGenerationAvailable = true; // 프롬프트 텍스트 삽입이므로 항상 사용 가능
 
   const handleSettingsClick = () => {
     setShowMenu(false);

@@ -6,7 +6,6 @@ import {
   SidebarContent,
   SidebarMenuContent,
   SidebarToggleButton,
-  ConversationMenuItem,
 } from '../styles/GlobalStyle';
 import { chatApi } from '../api/chatApi';
 import { TrainingThread, InteractionRecord } from '../types';
@@ -222,7 +221,7 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
   const [allRecentThreads, setAllRecentThreads] = useState<Array<TrainingThread & { persona_id: string; persona_name: string }>>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [interactionHeight, setInteractionHeight] = useState(300);
-  const [isResizing, setIsResizing] = useState(false);
+  const [, setIsResizing] = useState(false);
 
   const menuItems = mode === 'recent' 
     ? [] // 최근 상호작용 모드에서는 메뉴 아이템 없음
@@ -402,16 +401,54 @@ const ConversationSidebar: React.FC<ConversationSidebarProps> = ({
     });
   };
 
-  const formatDate = (timestamp: string) => {
-    return new Date(timestamp).toLocaleDateString('ko-KR', {
-      month: 'short',
-      day: 'numeric',
-    });
-  };
 
-  const handleThreadSelect = (threadId: string, itemType: string) => {
+
+  const handleThreadSelect = async (threadId: string, itemType: string) => {
+    console.log('=== 스레드 선택 시작 ===');
+    console.log('선택된 스레드 ID:', threadId);
+    console.log('스레드 타입:', itemType);
+    
     setSelectedThreadId(threadId);
+    
+    // 스레드 선택 시 최신 데이터로 새로고침
+    try {
+      if (selectedPersonaId) {
+        console.log('스레드 선택으로 인한 데이터 새로고침');
+        const threadsResponse = await chatApi.getPersonaThreads(selectedPersonaId);
+        if (threadsResponse.data) {
+          const updatedThreads = threadsResponse.data;
+          
+          // 스레드 데이터 업데이트
+          const threadsByType = {
+            interpretation: updatedThreads.filter(t => t.thread_type === 'interpretation'),
+            proceed: updatedThreads.filter(t => t.thread_type === 'proceed'),
+            sentence: updatedThreads.filter(t => t.thread_type === 'sentence')
+          };
+          
+          setThreads(threadsByType);
+          console.log('스레드 데이터 업데이트 완료:', {
+            interpretation: threadsByType.interpretation.length,
+            proceed: threadsByType.proceed.length,
+            sentence: threadsByType.sentence.length
+          });
+          
+          // 선택된 스레드의 최신 상태 확인
+          const selectedThread = updatedThreads.find(t => t.id === threadId);
+          if (selectedThread) {
+            console.log('선택된 스레드 최신 상태:', {
+              messageCount: selectedThread.messages?.length || 0,
+              lastUpdate: selectedThread.updated_at
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('스레드 선택 시 데이터 새로고침 실패:', error);
+    }
+    
+    // 선택 완료
     onSelectItem(`${itemType}-thread-${threadId}`);
+    console.log('=== 스레드 선택 완료 ===');
   };
 
   const handleDeleteThread = async (threadId: string, e: React.MouseEvent) => {

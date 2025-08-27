@@ -224,7 +224,7 @@ const QAPage: React.FC = () => {
   const [interimTranscript, setInterimTranscript] = useState('');
   const [allAnswers, setAllAnswers] = useState<QASubmission[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isComplete, setIsComplete] = useState(false);
+  const [, setIsComplete] = useState(false);
   const [showCompletionPopup, setShowCompletionPopup] = useState(false);
   const navigate = useNavigate();
 

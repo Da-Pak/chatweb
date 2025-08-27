@@ -93,11 +93,7 @@ export const chatApi = {
     threadId: string,
     messageIndex: number,
     newContent: string
-  ): Promise<ApiResponse<{ 
-    success: boolean; 
-    message: string; 
-    updated_thread?: TrainingThread;
-  }>> {
+  ): Promise<ApiResponse<TrainingThread>> {
     return apiPut(`/threads/${threadId}/messages/${messageIndex}`, {
       new_content: newContent
     });
@@ -221,26 +217,29 @@ export const chatApi = {
   },
 
   // 현재 내용을 나아가기로 저장
-  async saveCurrentAsProceed(personaId: string, content: string): Promise<ApiResponse<ProceedResponse>> {
+  async saveCurrentAsProceed(personaId: string, content: string, currentMessages?: any[]): Promise<ApiResponse<ProceedResponse>> {
     return apiPost<ProceedResponse>('/proceed/save', {
       persona_id: personaId,
-      content: content
+      content: content,
+      current_messages: currentMessages || []
     });
   },
 
   // 현재 내용을 문장으로 저장
-  async saveCurrentAsSentence(personaId: string, content: string): Promise<ApiResponse<SentenceResponse>> {
+  async saveCurrentAsSentence(personaId: string, content: string, currentMessages?: any[]): Promise<ApiResponse<SentenceResponse>> {
     return apiPost<SentenceResponse>('/sentence/save', {
       persona_id: personaId,
-      content: content
+      content: content,
+      current_messages: currentMessages || []
     });
   },
 
   // 현재 내용을 해석에 추가 저장
-  async saveCurrentAsInterpretation(personaId: string, content: string): Promise<ApiResponse<InterpretationResponse>> {
+  async saveCurrentAsInterpretation(personaId: string, content: string, currentMessages?: any[]): Promise<ApiResponse<InterpretationResponse>> {
     return apiPost<InterpretationResponse>('/interpretations/save', {
       persona_id: personaId,
-      content: content
+      content: content,
+      current_messages: currentMessages || []
     });
   },
 
