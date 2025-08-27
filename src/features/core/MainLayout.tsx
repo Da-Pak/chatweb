@@ -32,7 +32,7 @@ const MainLayout: React.FC = () => {
   } | null>(null);
   
   // 해석 모드 전용 로딩 상태
-  const [isInterpretationLoading, setIsInterpretationLoading] = useState(false);
+  const [isInterpretationLoading] = useState(false);
   
   // 해석 저장소 (실제로는 백엔드에서 관리)
   const [interpretationStore, setInterpretationStore] = useState<Record<string, string>>({});

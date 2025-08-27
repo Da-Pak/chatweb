@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import styled from 'styled-components';
-import { confusionApi, ConfusionItemDetail, ChatMessage as ApiChatMessage } from '../api/confusionApi';
+import { confusionApi, ChatMessage as ApiChatMessage } from '../api/confusionApi';
 import Message from '../../shared/components/Message';
 import LoadingMessage from '../../shared/components/LoadingMessage';
 
@@ -144,16 +144,7 @@ const DetailChatView: React.FC<DetailChatViewProps> = ({
   const [personaName, setPersonaName] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    // 초기 메시지 로드 (백엔드에서 받아온다고 가정)
-    loadInitialMessages();
-  }, [itemId]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const loadInitialMessages = async () => {
+  const loadInitialMessages = useCallback(async () => {
     setIsLoading(true);
     
     try {
@@ -210,7 +201,16 @@ const DetailChatView: React.FC<DetailChatViewProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [personaId, itemId, itemTitle]);
+
+  useEffect(() => {
+    // 초기 메시지 로드 (백엔드에서 받아온다고 가정)
+    loadInitialMessages();
+  }, [itemId, loadInitialMessages]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

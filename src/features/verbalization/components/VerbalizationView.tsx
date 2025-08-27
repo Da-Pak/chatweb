@@ -416,9 +416,6 @@ const VerbalizationView: React.FC<VerbalizationViewProps> = ({
         // 언어화에서도 메모 기능 제공
         if (selectedText) {
           try {
-            // 임시 메모 ID 생성 (선택된 텍스트 기반)
-            const tempMemoId = `verbalization_text_${Date.now()}`;
-            
             // 선택된 텍스트에 대한 메모 프롬프트
             const memo = prompt('선택한 텍스트에 대한 메모를 입력하세요:', selectedText);
             if (memo) {

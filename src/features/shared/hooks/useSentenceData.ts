@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { sentenceApi } from '../../training/api/sentenceApi';
 
 export const useSentenceData = (threadId?: string) => {
@@ -7,14 +7,7 @@ export const useSentenceData = (threadId?: string) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 스레드별 메모/하이라이트 데이터 로딩
-  useEffect(() => {
-    if (threadId) {
-      loadThreadSentenceData();
-    }
-  }, [threadId]);
-
-  const loadThreadSentenceData = async () => {
+  const loadThreadSentenceData = useCallback(async () => {
     if (!threadId) return;
     
     console.log('=== 스레드 문장 데이터 로딩 시작 ===');
@@ -47,7 +40,14 @@ export const useSentenceData = (threadId?: string) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [threadId]);
+
+  // 스레드별 메모/하이라이트 데이터 로딩
+  useEffect(() => {
+    if (threadId) {
+      loadThreadSentenceData();
+    }
+  }, [threadId, loadThreadSentenceData]);
 
   const handleMemoChange = async (
     sentenceId: string, 
@@ -107,7 +107,6 @@ export const useSentenceData = (threadId?: string) => {
     
     try {
       // 로컬 상태에서 메모 즉시 제거 (UI 반응성)
-      const previousMemo = memos[sentenceId];
       setMemos(prev => {
         const newMemos = { ...prev };
         delete newMemos[sentenceId];

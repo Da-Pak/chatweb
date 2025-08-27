@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { chatApi } from '../../shared/api/chatApi';
 
@@ -121,22 +121,7 @@ const InterpretationPopup: React.FC<InterpretationPopupProps> = ({
   const [progress, setProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
 
-  useEffect(() => {
-    if (!isOpen) {
-      setStep('confirm');
-      setProgress(0);
-      setErrorMessage('');
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (step === 'progress') {
-      // 실제 백엔드 API 호출
-      generateInterpretation();
-    }
-  }, [step, personaId]);
-
-  const generateInterpretation = async () => {
+  const generateInterpretation = useCallback(async () => {
     try {
       setProgress(10);
       
@@ -169,7 +154,22 @@ const InterpretationPopup: React.FC<InterpretationPopupProps> = ({
       setErrorMessage('해석 생성 중 오류가 발생했습니다.');
       setStep('error');
     }
-  };
+  }, [personaId, onComplete]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setStep('confirm');
+      setProgress(0);
+      setErrorMessage('');
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (step === 'progress') {
+      // 실제 백엔드 API 호출
+      generateInterpretation();
+    }
+  }, [step, personaId, generateInterpretation]);
 
   const handleConfirm = () => {
     setStep('progress');

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Persona, InterpretationStatus } from '../../shared/types';
+import { Persona } from '../../shared/types';
 import styled from 'styled-components';
 import InterpretationPopup from './InterpretationPopup';
 import { chatApi } from '../../shared/api/chatApi';
@@ -16,9 +16,7 @@ const CategoryContainer = styled.div`
   overflow-y: auto;
 `;
 
-const CategorySection = styled.div`
-  margin-bottom: 24px;
-`;
+
 
 const CategoryHeader = styled.div<{ $isExpanded: boolean }>`
   background: linear-gradient(135deg, #f0f0f0 0%, #d0d0d0 100%);
@@ -56,20 +54,9 @@ const SubcategoryContainer = styled.div<{ $isExpanded: boolean }>`
   box-shadow: ${props => props.$isExpanded ? '0 4px 12px rgba(0, 0, 0, 0.1)' : 'none'};
 `;
 
-const SubcategorySection = styled.div`
-  padding: 16px;
-  border-left: 3px solid #e0e0e0;
-  margin: 8px 16px;
-`;
 
-const SubcategoryTitle = styled.h3`
-  font-size: 16px;
-  font-weight: 600;
-  color: #555;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e0e0e0;
-`;
+
+
 
 const PersonaCard = styled.div<{ $hasInterpretation: boolean }>`
   background: linear-gradient(135deg, #f8f8f8 0%, #e8e8e8 100%);
@@ -138,51 +125,13 @@ const DirectCategoryTitle = styled.h3`
   border-left: 4px solid #ddd;
 `;
 
-const HeaderSection = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-  padding: 16px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  border: 1px solid #e9ecef;
-`;
 
-const HeaderTitle = styled.h2`
-  font-size: 24px;
-  font-weight: 700;
-  color: #343a40;
-  margin: 0;
-`;
 
-const GenerateAllButton = styled.button<{ $isLoading: boolean }>`
-  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 12px 24px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: ${props => props.$isLoading ? 'not-allowed' : 'pointer'};
-  transition: all 0.2s ease;
-  opacity: ${props => props.$isLoading ? 0.7 : 1};
-  
-  &:hover {
-    transform: ${props => props.$isLoading ? 'none' : 'translateY(-1px)'};
-    box-shadow: ${props => props.$isLoading ? 'none' : '0 4px 12px rgba(0, 123, 255, 0.3)'};
-  }
-  
-  &:active {
-    transform: ${props => props.$isLoading ? 'none' : 'translateY(0)'};
-  }
-`;
 
-const ProgressInfo = styled.div`
-  font-size: 12px;
-  color: #6c757d;
-  margin-top: 4px;
-`;
+
+
+
+
 
 const TrainingCategoryView: React.FC<TrainingCategoryViewProps> = ({
   personas,
@@ -194,8 +143,7 @@ const TrainingCategoryView: React.FC<TrainingCategoryViewProps> = ({
     name: string;
   } | null>(null);
   const [interpretationStatuses, setInterpretationStatuses] = useState<Record<string, boolean>>({});
-  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
-  const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
+
 
   // 해석 상태 가져오기
   useEffect(() => {
@@ -284,47 +232,7 @@ const TrainingCategoryView: React.FC<TrainingCategoryViewProps> = ({
     }
   };
 
-  // 모든 페르소나 해석 생성
-  const handleGenerateAllInterpretations = async () => {
-    if (isGeneratingAll) return;
-    
-    const totalPersonas = Object.keys(personas).length;
-    setIsGeneratingAll(true);
-    setGenerationProgress({ current: 0, total: totalPersonas });
-    
-    try {
-      const response = await chatApi.generateAllInterpretations();
-      
-      if (response.data) {
-        // 성공적으로 생성된 해석들의 상태 업데이트
-        const newStatuses: Record<string, boolean> = {};
-        response.data.interpretations.forEach(interpretation => {
-          newStatuses[interpretation.persona_id] = true;
-        });
-        
-        setInterpretationStatuses(prev => ({
-          ...prev,
-          ...newStatuses
-        }));
-        
-        setGenerationProgress({ current: response.data.total_count, total: totalPersonas });
-        
-        // 잠시 후 완료 상태 표시
-        setTimeout(() => {
-          setIsGeneratingAll(false);
-          setGenerationProgress({ current: 0, total: 0 });
-        }, 2000);
-      } else {
-        console.error('전체 해석 생성 실패:', response.error);
-        setIsGeneratingAll(false);
-        setGenerationProgress({ current: 0, total: 0 });
-      }
-    } catch (error) {
-      console.error('전체 해석 생성 오류:', error);
-      setIsGeneratingAll(false);
-      setGenerationProgress({ current: 0, total: 0 });
-    }
-  };
+
 
   return (
     <>
